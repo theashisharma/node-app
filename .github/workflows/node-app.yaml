@@ -1,0 +1,70 @@
+name: Push-to-EC2  # Name of the GitHub Actions workflow
+
+on: push  # Trigger the workflow on push events
+
+jobs:
+  deploy:  # Job name
+    name: Push to EC2 Instance  # Display name for the job
+    runs-on: ubuntu-latest  # Use the latest version of Ubuntu as the runner for the job
+
+    steps:  # List of steps to execute in the job
+
+      - name: Checkout the code  # Step to check out the code from the repository
+        uses: actions/checkout@v1  # Use the actions/checkout action
+
+      - name: Deploy to my EC2 instance  # Step to deploy the code to the EC2 instance
+        uses: easingthemes/ssh-deploy@v2.1.5  # Use the easingthemes/ssh-deploy action
+        env:  # Environment variables for the action
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}  # Use the EC2 SSH private key stored in GitHub Secrets
+          SOURCE: "./"  # Source directory to deploy
+          REMOTE_HOST: ${{ secrets.HOST_DNS }}  # EC2 instance hostname
+          REMOTE_USER: ${{ secrets.USERNAME }}  # Username to use for SSH
+          TARGET: "/home/ubuntu/node-app"  # Target directory on the EC2 instance
+
+        with:  # Additional parameters for the action
+          command: |  # Multi-line command
+            ls  # List files in the source directory
+
+      - name: Run command on EC2  # Step to run commands on the EC2 instance
+        env:  # Environment variables for the step
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}  # Use the EC2 SSH private key stored in GitHub Secrets
+          USERNAME: ${{ secrets.USERNAME }}
+          HOST_DNS: ${{ secrets.HOST_DNS }}
+
+        run: |  # Multi-line command to run on the EC2 instance
+          echo "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key && chmod 600 ~/.ssh/deploy_key  # Store and set permissions for the SSH private key
+          ssh -o StrictHostKeyChecking=no -tt -i ~/.ssh/deploy_key $USERNAME@$HOST_DNS '  # SSH into the EC2 instance
+            ls  # List files on the EC2 instance
+            whoami  # Print the current user
+            MY_IP=$(curl ifconfig.me)  # Get the public IP address of the EC2 instance
+            # Deploy the application using minikube and kubectl
+            minikube start
+            kubectl apply -f /home/ubuntu/node-app/deploy.yaml
+            nohup minikube tunnel &
+            sleep 60
+            kubectl get pods
+            sleep 30
+            kubectl get svc
+            EXTERNAL_IP=$(kubectl get svc my-app-service -o=jsonpath="{.status.loadBalancer.ingress[0].ip}")  # Get the external IP of the service
+            echo "External IP: $EXTERNAL_IP"
+            # Install and configure nginx
+            sudo apt-get update
+            sudo apt-get install nginx -y
+            sudo systemctl start nginx
+            sudo systemctl enable nginx
+            # Configure nginx to proxy traffic to the service
+            echo "server {
+                listen 80;
+                server_name $MY_IP;
+                location / {
+                    proxy_pass http://$EXTERNAL_IP;
+                    proxy_set_header Host \$host;
+                    proxy_set_header X-Real-IP \$remote_addr;
+                    proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+                    proxy_set_header X-Forwarded-Proto \$scheme;
+                }
+            }" | sudo tee /etc/nginx/sites-available/default > /dev/null
+            sudo systemctl restart nginx  # Restart nginx to apply the configuration
+            sleep 30
+            exit  # Exit the SSH session
+          '

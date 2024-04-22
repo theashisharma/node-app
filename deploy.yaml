@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app-deployment  # Name of the deployment
+spec:
+  replicas: 3  # Number of replicas for the deployment
+  selector:
+    matchLabels:
+      app: my-app  # Label selector to match pods controlled by this deployment
+  template:
+    metadata:
+      labels:
+        app: my-app  # Labels to apply to pods created by this deployment
+    spec:
+      containers:
+      - name: my-app  # Name of the container
+        image: ashish180298/node-app  # Docker image to use for the container
+        ports:
+        - containerPort: 8080  # Port to expose on the container
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: my-app-service  # Name of the service
+spec:
+  selector:
+    app: my-app  # Label selector to route traffic to pods with this label
+  ports:
+  - protocol: TCP
+    port: 80  # Port exposed by the service
+    targetPort: 8080  # Port on the pod to forward traffic to
+    nodePort: 31026  # Node port for the service (only relevant for type=LoadBalancer)
+  type: LoadBalancer  # Type of service (LoadBalancer, NodePort, ClusterIP, etc.)
